@@ -1,0 +1,202 @@
+library(ggplot2)
+library(data.table)
+library(xts)
+library(reshape2)
+
+summarise_missing_data_plot_WITH_TRANsformer<- function(){
+  # this function is used to plot the plot of paper which shows the days on which quater of the data is missing by gaps. This version also shows the transformer data
+  library(ggplot2)
+  library(data.table)
+  library(xts)
+  def_path <- "/Volumes/MacintoshHD2/Users/haroonr/Detailed_datasets/IIIT_dataset/processed_phase_2/"
+  meter <- "data_present_status.csv"
+  data <- fread(paste0(def_path,meter)) 
+  data$timestamp <- fasttime::fastPOSIXct(data$timestamp)-19800
+  temp <- data[data$timestamp <= as.POSIXct("2017-07-07 23:59:59"),]
+  temp_xts <- xts(temp[,-1],temp$timestamp)
+  #ARRANGE TRANSFORMER DATA##
+  transformer_data <-  "/Volumes/MacintoshHD2/Users/haroonr/Detailed_datasets/IIIT_dataset/supply/processed_phase_2/data_present_status_transformer.csv"
+  df_tran <-  fread(transformer_data)
+  df_tran_xts <- xts(df_tran[,-1], fasttime::fastPOSIXct(df_tran$timestamp) - 19800)
+  colnames(df_tran_xts) <- c("Transformer_1","Transformer_2","Transformer_3")
+  ########
+  temp_xts <- cbind(temp_xts,df_tran_xts)
+  
+  day_data <- split.xts(temp_xts,f="days",k=1)
+  sumry_data <- lapply(day_data, function(x) {
+    #x <- day_data[[1]]
+    sumry <- apply(x,2,sum)
+    sumry <- ifelse(sumry <=1440/4, NA, 1)
+    return(xts(data.frame(t(sumry)),as.Date(index(x[1]),tz="Asia/Kolkata")))
+    #return(sumry)
+  })
+  sumry_data_xts <-  do.call(rbind,sumry_data)
+  # Calculate uptime for each meter
+  #apply(sumry_data_xts,2,sum,na.rm=TRUE)/1428 #[1428 is the total no. of days]
+  #    Academic    Boys_main  Boys_backup   Facilities   Girls_main Girls_backup      Lecture      Library         Mess   #   0.9880952    0.7261905    0.7331933    0.8928571    0.7002801    0.9985994    0.9880952    0.7240896    0.8725490
+  uptime<- apply(sumry_data_xts,2,sum,na.rm=TRUE)
+  # Next line has been counted manually, 1428 represents total no. of days, subtracted numbers from 1428 shows that corresponding metter started or stopped eary by the mentioned days
+  divisor  <- c(1428,1428,1428,1428-97,1428,1428,1428,1428-25,1428-45,1428-105,1428-105,1428-105)
+  uptime <-round(as.numeric(uptime/divisor)*100,1)
+  temp <- data.frame(timestamp=index(sumry_data_xts),coredata(sumry_data_xts))
+  mulfactor <- 1:(NCOL(temp)-1)
+  for (i in 2:NCOL(temp)) {
+    temp[,i] <- temp[,i] * mulfactor[i-1] }
+  data_long <- reshape2::melt(temp,id.vars=c("timestamp"))
+  #  data_long$value <- ifelse(data_long$value==0,NA,data_long$value)
+  names <- colnames(sumry_data_xts)
+  g <- ggplot(data_long,aes(timestamp,value,color=variable)) + geom_line()
+  g <- g + theme(axis.text = element_text(color="black"),axis.text.y = element_blank(),axis.ticks.y = element_blank(), legend.title = element_blank(), legend.position = "none" )+ labs(x= " ", y="Meter") + scale_x_date(breaks=scales::date_breaks("6 month"),labels = scales::date_format("%b-%Y"))
+  g <- g + annotate("text",x=as.Date("2013-08-10"),y=seq(1.3,12.3,1),label=names,hjust=0)
+  g <- g + annotate("text",x=as.Date("2017-07-07"),y=seq(1.3,12.3,1),label=uptime)
+  g <- g + scale_y_continuous(sec.axis = sec_axis(~./1, name = "Uptime (%)"  ))
+  g
+  setwd("/Volumes/MacintoshHD2/Users/haroonr/Dropbox/Writings/IIIT_dataset/figures/")
+  # ggsave(filename="data_missing_plot_version_3.pdf",height = 5,width = 10,units = c("in"))
+}
+
+plot_facetted_histograms_of_Data<- function(){
+  # this function is used to plot histograms of different meters in grid manner.
+
+  # REQUIRED FUNCTION
+  remove_outliers <- function(x, na.rm = TRUE, ...) {
+    # remove outliers from columns and fill with NAs
+    # https://stackoverflow.com/a/4788102/3317829
+    qnt <- quantile(x, probs=c(.25, .75), na.rm = na.rm, ...)
+    H <- 1.5 * IQR(x, na.rm = na.rm)
+    y <- x
+    y[x < (qnt[1] - H)] <- NA
+    y[x > (qnt[2] + H)] <- NA
+    y
+  }
+  # read buildings power data
+  def_path <- "path_to_folder_containiong all_buildings_power.csv"
+  meter <- "all_buildings_power.csv"
+  data <- fread(paste0(def_path,meter)) 
+  data$timestamp <- fasttime::fastPOSIXct(data$timestamp)-19800 # assuming human readable timestamp, 19800 meaning +5:30 is subtracted from UTC 
+  df_xts <- xts(data[,-1],data$timestamp)
+  # read transformer power data
+  transformer_data <-  "path to all_transformer_power.csv"
+  df_tran <-  fread(transformer_data)
+  df_tran_xts <- xts(df_tran[,-1], fasttime::fastPOSIXct(df_tran$timestamp) - 19800)
+  colnames(df_tran_xts) <- c("Transformer_1","Transformer_2","Transformer_3")
+# combine buildings and transformer power data
+  df_xts <- cbind(df_xts,df_tran_xts)
+  df <- data.frame(timestamp=index(df_xts),coredata(df_xts))
+  # handle zero readings in Lecture building
+  df$Lecture <- ifelse(df$Lecture==0,NA,df$Lecture)
+  # remove timestamp column and apply remove_outliers function
+  temp2 <- apply(df[,-1],2,remove_outliers)
+  data_long <- reshape2::melt(temp2)
+  data_long$value <- data_long$value/1000 # converting to killo watts
+  data_long <- data_long[,2:3]
+  g <- ggplot(data_long,aes(value)) + geom_histogram(binwidth = 1) + facet_wrap(~Var2 ,scales = "free")
+  g <- g + labs(x="Power (kW)", y= "Count") + theme(axis.text = element_text(color = "black"),axis.text.y =  element_blank(),axis.title.y=element_blank(),axis.ticks.y = element_blank())
+  g
+  # ggsave(filename="filename.pdf",height = 8,width = 12,units = c("in"))
+}
+
+
+plot_histograms_hour_wise_data_WITH_TRANSFORMER<- function(){
+  # this function is used to plot hour-wise consumption of different buildings and supply transformer
+  library(ggplot2)
+  library(data.table)
+  library(xts)
+  library(dplyr)
+  def_path <- "/Volumes/MacintoshHD2/Users/haroonr/Detailed_datasets/IIIT_dataset/processed_phase_2/"
+  meter <- "all_buildings_power.csv"
+  df <- fread(paste0(def_path,meter)) 
+  df$timestamp <- fasttime::fastPOSIXct(df$timestamp)-19800
+  df_xts <- xts(df[,-1],df$timestamp)
+  
+  #ARRANGE TRANSFORMER DATA##
+  transformer_data <-  "/Volumes/MacintoshHD2/Users/haroonr/Detailed_datasets/IIIT_dataset/supply/processed_phase_2/all_transformer_power.csv"
+  df_tran <-  fread(transformer_data)
+  df_tran_xts <- xts(df_tran[,-1], fasttime::fastPOSIXct(df_tran$timestamp) - 19800)
+  colnames(df_tran_xts) <- c("Transformer_1","Transformer_2","Transformer_3")
+  ########
+  df_xts <- cbind(df_xts,df_tran_xts)
+  start_date <- as.POSIXct("2017-01-01")
+  end_date <- as.POSIXct("2017-04-30 23:59:59")
+  temp <- df_xts[paste0(start_date,"/",end_date)]
+  temp <- data.frame(timestamp=index(temp),coredata(temp))
+  #temp <- df[df$timestamp>=start_date & df$timestamp <= end_date,]
+  temp$hour <- lubridate::hour(temp$timestamp)
+  tbl <- as_data_frame(temp)
+  dat <- tbl %>% group_by(hour) %>% summarise_all(funs(mean(.,na.rm=TRUE))) %>% select(-timestamp)
+  dat_long <- reshape2::melt(dat,id.vars="hour")
+  g <- ggplot(dat_long,aes(hour,value/1000)) + geom_bar(stat="identity") + facet_wrap(~variable,scales = "free")
+  g <- g + labs(x="Day hour", y= "Power(kW)") + theme(axis.text = element_text(color = "black"))
+  g
+  setwd("/Volumes/MacintoshHD2/Users/haroonr/Dropbox/Writings/IIIT_dataset/figures/")
+  ggsave(filename="day_hour_usage_plot_2_1.pdf",height = 8,width = 12,units = c("in"))
+}
+
+compute_campus_energy <- function(){
+  # this scipt is used to plot total consumption of the campus and the average temperature. It takes data from all the three transformers and plots the data.
+  library(data.table)
+  library(xts)
+  library(ggplot2)
+  path <- "/Volumes/MacintoshHD2/Users/haroonr/Detailed_datasets/IIIT_dataset/supply/processed_phase_2/all_transformer_power.csv"
+  df <- fread(path,header = TRUE)
+  df_xts <- xts(df[,-1],fasttime::fastPOSIXct(df$timestamp)-19800) # subtracting5:30 according to IST
+  power_daily <- apply.daily(df_xts,apply,2, 
+                             function(x){
+                               temp <- ifelse(any(is.na(x)),NA,sum(x))
+                               return(temp)
+                             })
+  # energy = power * time
+  # energy = sum(power*1/60)*1/1000 [kWH]
+  energy_daily <- power_daily/60000
+  temp <- apply(energy_daily,1,sum,na.rm=TRUE) 
+  energy_monthly <- apply.monthly(temp, mean, na.rm=TRUE)
+  energy_xts <- xts(as.numeric(energy_monthly),as.Date(row.names(energy_monthly) )) 
+  plot(energy_xts)
+  #weather data
+  weather_path <- "/Volumes/MacintoshHD2/Users/haroonr/Detailed_datasets/weatherdata_PROCESSED/"
+  dirs <- list.files(weather_path,recursive = TRUE,include.dirs = TRUE,pattern = "*FULL.csv")
+  weather_files <- lapply(dirs, function(x){
+    df <- fread(paste0(weather_path,x))
+    df_xts <- xts(df[,-1],fasttime::fastPOSIXct(df$timestamp)-19800)
+    return(df_xts)
+  })
+  weather<- do.call(rbind,weather_files)
+  weather_month <- apply.monthly(weather,mean)
+  index(weather_month) <- as.Date(index(weather_month))
+  index(weather_month) <- as.Date(index(weather_month))
+  weather_month <- weather_month["2013-11-25/"]
+  temp2 <- data.frame(timestamp=index(energy_xts),coredata(energy_xts),coredata(weather_month$TemperatureC))
+  colnames(temp2) <- c("timestamp","Energy","Temperature")
+  # temp2$timestamp <- temp2$timestamp - 15 # shifting timestamp of mid of month
+  #https://rpubs.com/MarkusLoew/226759
+  temp3 <- temp2
+  temp3$timestamp <- as.yearmon(temp3$timestamp)
+  p <- ggplot(temp3,aes(timestamp,Energy)) + geom_histogram(aes(colour="Energy"),stat="Identity",bindwidth=10)
+  p <- p + geom_line(aes(y=Temperature*200,colour="Temperature"))
+  p <- p + scale_y_continuous(sec.axis = sec_axis(~./200, name = "Temperature"*"("~degree*"C)"  ))
+  p <- p + scale_colour_manual(values = c("black", "red")) 
+  p <- p + labs(y = "Energy (kWh)", x = "",colour = "Parameter") 
+  p <- p + scale_x_yearmon(format ="%b-%Y",n=30)
+  p <- p + theme(legend.position = c(0.1,0.9),axis.text = element_text(color = "black"),axis.text.x = element_text(angle = 90, hjust = 1),
+                 legend.background = element_rect(fill = "transparent", colour = "transparent"))
+  p
+  setwd("/Volumes/MacintoshHD2/Users/haroonr/Dropbox/Writings/IIIT_dataset/figures/")
+  # ggsave(filename="campus_total_energy_and_temperature.pdf",height = 4,width = 10,units = c("in"))
+}
+
+
+show_transformer_data_present_status <- function(){
+  # this function is used to write a CSV which shows on what timings we have logged meter data and the timings when data got missed
+  library(data.table)
+  library(xts)
+  library(ggplot2)
+  path <- "/Volumes/MacintoshHD2/Users/haroonr/Detailed_datasets/IIIT_dataset/supply/processed_phase_2/all_transformer_power.csv"
+  df <- fread(path,header = TRUE)
+  df_xts <- xts(df[,-1],fasttime::fastPOSIXct(df$timestamp)-19800) # subtracting5:30 according to IST
+  data_present_status <- ifelse(is.na(df_xts),0,1)
+  df_status <- data.frame(timestamp=index(df_xts),data_present_status)
+  savepath <- "/Volumes/MacintoshHD2/Users/haroonr/Detailed_datasets/IIIT_dataset/supply/processed_phase_2/"
+  # write.csv(df_status,paste0(savepath,"data_present_status_transformer.csv"),row.names = FALSE)
+}
+
+
