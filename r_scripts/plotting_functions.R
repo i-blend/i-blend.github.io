@@ -130,17 +130,16 @@ plot_histograms_hour_wise_data<- function(){
 
 compute_campus_energy <- function(){
   # this scipt is used to plot total consumption of the campus and the average temperature. It takes data from all the three transformers and plots the data.
-  library(data.table)
-  library(xts)
-  library(ggplot2)
-  path <- "/Volumes/MacintoshHD2/Users/haroonr/Detailed_datasets/IIIT_dataset/supply/processed_phase_2/all_transformer_power.csv"
+
+  path <- "path to all_transformer_power.csv"
   df <- fread(path,header = TRUE)
-  df_xts <- xts(df[,-1],fasttime::fastPOSIXct(df$timestamp)-19800) # subtracting5:30 according to IST
+  df_xts <- xts(df[,-1],fasttime::fastPOSIXct(df$timestamp)-19800) # subtracting 5:30 according to IST
   power_daily <- apply.daily(df_xts,apply,2, 
                              function(x){
                                temp <- ifelse(any(is.na(x)),NA,sum(x))
                                return(temp)
                              })
+  # convert power to energy using below formula
   # energy = power * time
   # energy = sum(power*1/60)*1/1000 [kWH]
   energy_daily <- power_daily/60000
@@ -148,23 +147,21 @@ compute_campus_energy <- function(){
   energy_monthly <- apply.monthly(temp, mean, na.rm=TRUE)
   energy_xts <- xts(as.numeric(energy_monthly),as.Date(row.names(energy_monthly) )) 
   plot(energy_xts)
-  #weather data
-  weather_path <- "/Volumes/MacintoshHD2/Users/haroonr/Detailed_datasets/weatherdata_PROCESSED/"
+  # read weather data
+  weather_path <- "path to weather dataset"
   dirs <- list.files(weather_path,recursive = TRUE,include.dirs = TRUE,pattern = "*FULL.csv")
   weather_files <- lapply(dirs, function(x){
     df <- fread(paste0(weather_path,x))
     df_xts <- xts(df[,-1],fasttime::fastPOSIXct(df$timestamp)-19800)
     return(df_xts)
   })
-  weather<- do.call(rbind,weather_files)
+  weather <- do.call(rbind,weather_files)
   weather_month <- apply.monthly(weather,mean)
   index(weather_month) <- as.Date(index(weather_month))
   index(weather_month) <- as.Date(index(weather_month))
   weather_month <- weather_month["2013-11-25/"]
   temp2 <- data.frame(timestamp=index(energy_xts),coredata(energy_xts),coredata(weather_month$TemperatureC))
   colnames(temp2) <- c("timestamp","Energy","Temperature")
-  # temp2$timestamp <- temp2$timestamp - 15 # shifting timestamp of mid of month
-  #https://rpubs.com/MarkusLoew/226759
   temp3 <- temp2
   temp3$timestamp <- as.yearmon(temp3$timestamp)
   p <- ggplot(temp3,aes(timestamp,Energy)) + geom_histogram(aes(colour="Energy"),stat="Identity",bindwidth=10)
@@ -176,7 +173,6 @@ compute_campus_energy <- function(){
   p <- p + theme(legend.position = c(0.1,0.9),axis.text = element_text(color = "black"),axis.text.x = element_text(angle = 90, hjust = 1),
                  legend.background = element_rect(fill = "transparent", colour = "transparent"))
   p
-  setwd("/Volumes/MacintoshHD2/Users/haroonr/Dropbox/Writings/IIIT_dataset/figures/")
   # ggsave(filename="campus_total_energy_and_temperature.pdf",height = 4,width = 10,units = c("in"))
 }
 
