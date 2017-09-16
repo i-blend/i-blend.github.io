@@ -2,6 +2,7 @@ library(ggplot2)
 library(data.table)
 library(xts)
 library(reshape2)
+library(dplyr)
 
 summarise_missing_data_plot_WITH_TRANsformer<- function(){
   # this function is used to plot the plot of paper which shows the days on which quater of the data is missing by gaps. This version also shows the transformer data
@@ -97,30 +98,26 @@ plot_facetted_histograms_of_Data<- function(){
 }
 
 
-plot_histograms_hour_wise_data_WITH_TRANSFORMER<- function(){
+plot_histograms_hour_wise_data<- function(){
   # this function is used to plot hour-wise consumption of different buildings and supply transformer
-  library(ggplot2)
-  library(data.table)
-  library(xts)
-  library(dplyr)
-  def_path <- "/Volumes/MacintoshHD2/Users/haroonr/Detailed_datasets/IIIT_dataset/processed_phase_2/"
+  # read power data of buildings
+  def_path <- "path_to_folder_containiong all_buildings_power.csv"
   meter <- "all_buildings_power.csv"
   df <- fread(paste0(def_path,meter)) 
   df$timestamp <- fasttime::fastPOSIXct(df$timestamp)-19800
   df_xts <- xts(df[,-1],df$timestamp)
-  
-  #ARRANGE TRANSFORMER DATA##
-  transformer_data <-  "/Volumes/MacintoshHD2/Users/haroonr/Detailed_datasets/IIIT_dataset/supply/processed_phase_2/all_transformer_power.csv"
+# read power data of transformers
+  transformer_data <-  "path to all_transformer_power.csv"
   df_tran <-  fread(transformer_data)
   df_tran_xts <- xts(df_tran[,-1], fasttime::fastPOSIXct(df_tran$timestamp) - 19800)
   colnames(df_tran_xts) <- c("Transformer_1","Transformer_2","Transformer_3")
-  ########
+  #combine power data of buildings and transformer
   df_xts <- cbind(df_xts,df_tran_xts)
+  # select fixed data for plotting
   start_date <- as.POSIXct("2017-01-01")
   end_date <- as.POSIXct("2017-04-30 23:59:59")
   temp <- df_xts[paste0(start_date,"/",end_date)]
   temp <- data.frame(timestamp=index(temp),coredata(temp))
-  #temp <- df[df$timestamp>=start_date & df$timestamp <= end_date,]
   temp$hour <- lubridate::hour(temp$timestamp)
   tbl <- as_data_frame(temp)
   dat <- tbl %>% group_by(hour) %>% summarise_all(funs(mean(.,na.rm=TRUE))) %>% select(-timestamp)
@@ -128,8 +125,7 @@ plot_histograms_hour_wise_data_WITH_TRANSFORMER<- function(){
   g <- ggplot(dat_long,aes(hour,value/1000)) + geom_bar(stat="identity") + facet_wrap(~variable,scales = "free")
   g <- g + labs(x="Day hour", y= "Power(kW)") + theme(axis.text = element_text(color = "black"))
   g
-  setwd("/Volumes/MacintoshHD2/Users/haroonr/Dropbox/Writings/IIIT_dataset/figures/")
-  ggsave(filename="day_hour_usage_plot_2_1.pdf",height = 8,width = 12,units = c("in"))
+  ggsave(filename="filename.pdf",height = 8,width = 12,units = c("in"))
 }
 
 compute_campus_energy <- function(){
