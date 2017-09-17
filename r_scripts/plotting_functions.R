@@ -1,11 +1,14 @@
 # this file contains functions which were used to generate plots in the paper
 
-
+# Ensure that following packages are installed. We may need these in different functions
 library(ggplot2)
 library(data.table)
 library(xts)
 library(reshape2)
 library(dplyr)
+library(RColorBrewer)# to increase no. of colors
+library(plotly)
+libarary(fasttime)
 
 summarise_missing_data_plot<- function(){
   # this function is used to plot the plot of paper which shows the days on which quater of the data is missing by gaps. This version also shows the transformer data
@@ -185,3 +188,29 @@ show_data_present_status <- function(){
 }
 
 
+visualize_data<- function(){
+  folder_path <- "/Volumes/MacintoshHD2/Users/haroonr/Detailed_datasets/IIIT_dataset/energy_dataset/"
+  meter <- "all_buildings_power.csv"
+  df <- fread(paste0(folder_path,meter))
+  df$timestamp <- as.POSIXct(df$timestamp,origin="1970-01-01",tz="Asia/Kolkata")
+  
+  df_xts <- xts(df[,2:NCOL(df)], fasttime::fastPOSIXct(df$timestamp)-19800)
+  
+  startdate <- fasttime::fastPOSIXct(paste0("2017-01-01",' ',"00:00:00"))-19800
+  enddate <- fasttime::fastPOSIXct(paste0("2017-04-31",' ',"23:59:59"))-19800
+  df_sub <- df_xts[paste0(startdate,"/",enddate)]
+  
+  visualize_dataframe_all_columns(df_sub)
+}
+
+
+visualize_dataframe_all_columns <- function(xts_data) {
+  
+  dframe <- data.frame(timeindex=index(xts_data),coredata(xts_data))
+  df_long <- reshape2::melt(dframe,id.vars = "timeindex")
+  colourCount = length(unique(df_long$variable))
+  getPalette = colorRampPalette(brewer.pal(8, "Dark2"))(colourCount) 
+  g <- ggplot(df_long,aes(timeindex,value,col=variable,group=variable))
+  g <- g + geom_line() + scale_colour_manual(values=getPalette)
+  ggplotly(g)
+}
