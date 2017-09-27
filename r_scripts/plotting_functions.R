@@ -8,7 +8,7 @@ library(reshape2)
 library(dplyr)
 library(RColorBrewer)# to increase no. of colors
 library(plotly)
-libarary(fasttime)
+library(fasttime)
 
 summarise_missing_data_plot<- function(){
   # this function is used to plot the plot of paper which shows the days on which quater of the data is missing by gaps. This version also shows the transformer data
@@ -237,4 +237,66 @@ visualize_data_at_lower_frequency <- function(){
   # down sample data by calling below function, Second parameter in the functin corresponds to number of minutes
   df_resampled <- resample_data_minutely(df_sub,240)
   visualize_dataframe_all_columns(df_resampled)
+}
+
+plot_line_graph_hour_wise_data<- function(){
+  # this function is used to plot hour-wise consumption of different buildings and supply transformer
+  library(ggplot2)
+  library(data.table)
+  library(xts)
+  library(dplyr)
+  def_path <- "/Volumes/MacintoshHD2/Users/haroonr/Detailed_datasets/IIIT_dataset/processed_phase_2/"
+  meter <- "all_buildings_power.csv"
+  df <- fread(paste0(def_path,meter)) 
+  df$timestamp <- fasttime::fastPOSIXct(df$timestamp)-19800
+  df_xts <- xts(df[,-1],df$timestamp)
+  
+  #ARRANGE TRANSFORMER DATA##
+  transformer_data <-  "/Volumes/MacintoshHD2/Users/haroonr/Detailed_datasets/IIIT_dataset/supply/processed_phase_2/all_transformer_power.csv"
+  df_tran <-  fread(transformer_data)
+  df_tran_xts <- xts(df_tran[,-1], fasttime::fastPOSIXct(df_tran$timestamp) - 19800)
+  colnames(df_tran_xts) <- c("Transformer_1","Transformer_2","Transformer_3")
+  ########
+  df_xts_comb <- cbind(df_xts,df_tran_xts)
+  # get January data
+  start_date <- as.POSIXct("2017-01-01")
+  end_date <- as.POSIXct("2017-01-30 23:59:59")
+  temp <- df_xts_comb[paste0(start_date,"/",end_date)]
+  data_month_1 <- create_data_summary(temp,month="January")
+  # get June data
+  start_date <- as.POSIXct("2017-06-01")
+  end_date <- as.POSIXct("2017-06-30 23:59:59")
+  temp <- df_xts_comb[paste0(start_date,"/",end_date)]
+  data_month_6 <- create_data_summary(temp,month="June")
+  
+  comb_data<- rbind(data_month_1,data_month_6)
+  
+  dat_long <- reshape2::melt(comb_data,id.vars=c("hour","Month"))
+  dat_long$Month <- as.factor(dat_long$Month)
+  g <- ggplot(dat_long,aes(hour,value/1000)) + geom_line(aes(group=Month,colour=Month,linetype=Month)) + facet_wrap(~variable,scales = "free")
+  g <- g + labs(x="Day hour", y= "Power(kW)") + theme(axis.text = element_text(color = "black"),legend.position = "top")
+  g
+  ggsave(filename="day_hour_usage_plot_2_2.pdf",height = 8,width = 12,units = c("in"))
+}
+
+create_data_summary <- function(temp,month_numb) {
+  # this function is called by plot_line_graph_hour_wise_data and is used to process the data
+  temp <- data.frame(timestamp=index(temp),coredata(temp))
+  temp$hour <- lubridate::hour(temp$timestamp)
+  tbl <- as_data_frame(temp)
+  dat <- tbl %>% group_by(hour) %>% summarise_all(funs(mean(.,na.rm=TRUE))) %>% select(-timestamp)
+  dat$Month <- month_numb
+  return(dat)
+}
+
+create_sunrise_sunset_data <- function() {
+  # This function is used to create sunrise and sunset timings.
+  library(StreamMetabolism)
+  # First two parameters refert to latatiude and longitude of the place
+  dat <- sunrise.set(28.5463,77.2732, "2013/08/10", timezone="Asia/Kolkata",num.days = 1428)
+  dat$sunrise <- as.numeric(dat$sunrise)
+  dat$sunset <- as.numeric(dat$sunset)
+  dat <- round(dat,0)
+  setwd("/Volumes/MacintoshHD2/Users/haroonr/Detailed_datasets/IIIT_dataset/")
+  #write.csv(dat,"sunrise_sunset_IIIT_Delhi.csv",row.names = FALSE)
 }
