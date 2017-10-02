@@ -129,16 +129,17 @@ plot_histograms_hour_wise_data<- function(){
 
 compute_campus_energy <- function(){
   # this scipt is used to plot total consumption of the campus and the average temperature. It takes data from all the three transformers and plots the data.
-  
+  library(data.table)
+  library(xts)
+  library(ggplot2)
   path <- "path to all_transformer_power.csv"
   df <- fread(path,header = TRUE)
-  df_xts <- xts(df[,-1],fasttime::fastPOSIXct(df$timestamp)-19800) # subtracting 5:30 according to IST
+  df_xts <- xts(df[,-1],fasttime::fastPOSIXct(df$timestamp)-19800) # subtracting5:30 according to IST
   power_daily <- apply.daily(df_xts,apply,2, 
                              function(x){
                                temp <- ifelse(any(is.na(x)),NA,sum(x))
                                return(temp)
                              })
-  # convert power to energy using below formula
   # energy = power * time
   # energy = sum(power*1/60)*1/1000 [kWH]
   energy_daily <- power_daily/60000
@@ -146,7 +147,7 @@ compute_campus_energy <- function(){
   energy_monthly <- apply.monthly(temp, mean, na.rm=TRUE)
   energy_xts <- xts(as.numeric(energy_monthly),as.Date(row.names(energy_monthly) )) 
   plot(energy_xts)
-  # read weather data
+  #weather data
   weather_path <- "path to weather dataset"
   dirs <- list.files(weather_path,recursive = TRUE,include.dirs = TRUE,pattern = "*FULL.csv")
   weather_files <- lapply(dirs, function(x){
@@ -154,25 +155,28 @@ compute_campus_energy <- function(){
     df_xts <- xts(df[,-1],fasttime::fastPOSIXct(df$timestamp)-19800)
     return(df_xts)
   })
-  weather <- do.call(rbind,weather_files)
+  weather<- do.call(rbind,weather_files)
   weather_month <- apply.monthly(weather,mean)
   index(weather_month) <- as.Date(index(weather_month))
   index(weather_month) <- as.Date(index(weather_month))
   weather_month <- weather_month["2013-11-25/"]
   temp2 <- data.frame(timestamp=index(energy_xts),coredata(energy_xts),coredata(weather_month$TemperatureC))
   colnames(temp2) <- c("timestamp","Energy","Temperature")
+  # temp2$timestamp <- temp2$timestamp - 15 # shifting timestamp of mid of month
+  #https://rpubs.com/MarkusLoew/226759
   temp3 <- temp2
   temp3$timestamp <- as.yearmon(temp3$timestamp)
-  p <- ggplot(temp3,aes(timestamp,Energy)) + geom_histogram(aes(colour="Energy"),stat="Identity",bindwidth=10)
-  p <- p + geom_line(aes(y=Temperature*200,colour="Temperature"))
+  p <- ggplot() 
+  p <- p + geom_line(data=temp3,aes(timestamp,y=Temperature*200,linetype="red"),colour="red")
+  p <- p + geom_histogram(data=temp3,aes(timestamp,Energy,colour="black"),stat="Identity",bindwidth=10)
+  p <- p + scale_x_yearmon(format ="%b-%Y",n=10)
   p <- p + scale_y_continuous(sec.axis = sec_axis(~./200, name = "Temperature"*"("~degree*"C)"  ))
-  p <- p + scale_colour_manual(values = c("black", "red")) 
-  p <- p + labs(y = "Energy (kWh)", x = "",colour = "Parameter") 
-  p <- p + scale_x_yearmon(format ="%b-%Y",n=30)
-  p <- p + theme(legend.position = c(0.1,0.9),axis.text = element_text(color = "black"),axis.text.x = element_text(angle = 90, hjust = 1),
-                 legend.background = element_rect(fill = "transparent", colour = "transparent"))
-  p
-  # ggsave(filename="campus_total_energy_and_temperature.pdf",height = 4,width = 10,units = c("in"))
+  p <- p + scale_linetype_manual( labels="Temperature", values = "solid") 
+  p <- p + labs(y = "Energy (kWh)", x = "") 
+  p <- p + scale_colour_manual(name="", labels= "Energy", values = 'black')
+  p <- p+  guides(colour = guide_legend(override.aes = list(colour = "black", size = 1), order = 1), linetype = guide_legend(title = NULL, override.aes = list(linetype = "solid", colour = "red", size = 1),order = 2)) 
+  p <- p + theme(legend.key = element_rect(fill = "white", colour = NA),legend.spacing = unit(0, "lines"))
+  # ggsave(filename="campus_total_energy_and_temperature_2.pdf",height = 4,width = 10,units = c("in"))
 }
 
 show_data_present_status <- function(){
@@ -264,20 +268,24 @@ plot_line_graph_hour_wise_data<- function(){
   temp <- df_xts_comb[paste0(start_date,"/",end_date)]
   data_month_1 <- create_data_summary(temp,month="January")
   # get June data
-  start_date <- as.POSIXct("2017-06-01")
-  end_date <- as.POSIXct("2017-06-30 23:59:59")
+  start_date <- as.POSIXct("2016-08-01")
+  end_date <- as.POSIXct("2016-08-30 23:59:59")
   temp <- df_xts_comb[paste0(start_date,"/",end_date)]
-  data_month_6 <- create_data_summary(temp,month="June")
+  data_month_6 <- create_data_summary(temp,month="August")
   
   comb_data<- rbind(data_month_1,data_month_6)
   
   dat_long <- reshape2::melt(comb_data,id.vars=c("hour","Month"))
   dat_long$Month <- as.factor(dat_long$Month)
-  g <- ggplot(dat_long,aes(hour,value/1000)) + geom_line(aes(group=Month,colour=Month,linetype=Month)) + facet_wrap(~variable,scales = "free")
+  
+  g <- ggplot(dat_long,aes(hour,value/1000)) + geom_line(aes(group=Month,colour=Month,linetype=Month),size=0.8) + facet_wrap(~variable,scales = "free")
   g <- g + labs(x="Day hour", y= "Power(kW)") + theme(axis.text = element_text(color = "black"),legend.position = "top")
   g
-  ggsave(filename="day_hour_usage_plot_2_2.pdf",height = 8,width = 12,units = c("in"))
+  #setwd("/Volumes/MacintoshHD2/Users/haroonr/Dropbox/Writings/IIIT_dataset/figures/")
+  # 
+  # ggsave(filename="day_hour_usage_plot_2_3.pdf",height = 8,width = 11,units = c("in"))
 }
+
 
 create_data_summary <- function(temp,month_numb) {
   # this function is called by plot_line_graph_hour_wise_data and is used to process the data
