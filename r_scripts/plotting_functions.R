@@ -1,6 +1,6 @@
 # this file contains functions which were used to generate plots in the paper
-
 # Ensure that following packages are installed. We may need these in different functions
+# Note for myself: All these functions are defined with complete directory paths in file curate_processed_datasets.R of IIIT_Delhi_data_project. 
 library(ggplot2)
 library(data.table)
 library(xts)
@@ -9,6 +9,7 @@ library(dplyr)
 library(RColorBrewer)# to increase no. of colors
 library(plotly)
 library(fasttime)
+Sys.setenv(TZ='Asia/Kolkata')
 
 summarise_missing_data_plot<- function(){
   # this function is used to plot the plot of paper which shows the days on which quater of the data is missing by gaps. This version also shows the transformer data
@@ -191,7 +192,6 @@ show_data_present_status <- function(){
   # write.csv(df_status,"data_present_status.csv",row.names = FALSE)
 }
 
-
 visualize_data<- function(){
   # this function first formats data for plotting and then calls another fucntion for actual plotting
   folder_path <- "path to file all_buildings_power.csv"
@@ -206,7 +206,6 @@ visualize_data<- function(){
   # call below function for plotting
   visualize_dataframe_all_columns(df_sub)
 }
-
 
 visualize_dataframe_all_columns <- function(xts_data) {
   # this functions plots input xts_data 
@@ -286,7 +285,6 @@ plot_line_graph_hour_wise_data<- function(){
   # ggsave(filename="day_hour_usage_plot_2_3.pdf",height = 8,width = 11,units = c("in"))
 }
 
-
 create_data_summary <- function(temp,month_numb) {
   # this function is called by plot_line_graph_hour_wise_data and is used to process the data
   temp <- data.frame(timestamp=index(temp),coredata(temp))
@@ -307,4 +305,89 @@ create_sunrise_sunset_data <- function() {
   dat <- round(dat,0)
   setwd("/Volumes/MacintoshHD2/Users/haroonr/Detailed_datasets/IIIT_dataset/")
   #write.csv(dat,"sunrise_sunset_IIIT_Delhi.csv",row.names = FALSE)
+}
+
+resample_occupancy_minutely <- function(xts_datap,xminutes) {
+  #This function resamples input xts data to xminutes rate but it computes max as compared to common mean function
+  ds_data <- period.apply(xts_datap,INDEX = endpoints(index(xts_datap)-3600*0.5, on = "minutes", k = xminutes ), FUN= max) # subtracting half hour to align IST hours
+  align_data <- align.time(ds_data,xminutes*60) # aligning to x seconds
+  rm(ds_data)
+  return(align_data)
+}
+
+plot_power_occupancy_data <- function(){
+  #  I use this function to plot power and occupancy of two buildings.
+  #  Remember at the time of plotting, the occupancy dataset was 5:30 hours lagging (seems in UTC) so I forced timestamps to correct value.
+  library(ggplot2)
+  library(data.table)
+  library(xts)
+  library(dplyr)
+  Sys.setenv(TZ='Asia/Kolkata')
+  
+  # for first building
+  def_path <- "path to power dataset"
+  meter <- "acad_build_mains.csv"
+  data <- fread(paste0(def_path,meter))
+  data$timestamp <- as.POSIXct(data$timestamp,tz="Asia/Kolkata",origin = "1970-01-01")
+  start_date <- as.POSIXct("2017-04-01")
+  end_date <- as.POSIXct("2017-04-05 23:59:59")
+  data_sub <- data[data$timestamp >= start_date & data$timestamp <= end_date,]
+  data_sub_xts <- xts(data_sub$power,data_sub$timestamp)
+  data_sampled <- resample_data_minutely(data_sub_xts,30)
+  
+  
+  occupancy_path <- "path to occupancy dataset CSV file"
+  occu_df <- fread(occupancy_path)
+  occu_df$timestamp <- as.POSIXct(occu_df$timestamp,tz="Asia/Kolkata",origin = "1970-01-01")
+  occu_df$timestamp <- occu_df$timestamp + 19800 # adding 5:30 hours
+  occu_sub <- occu_df[occu_df$timestamp >= start_date & occu_df$timestamp <= end_date,]
+  occu_xts <- xts(occu_sub$occupancy_count, occu_sub$timestamp) 
+  occu_sampled <- resample_occupancy_minutely(occu_xts,30)
+
+  temp <- cbind(data_sampled,occu_sampled)
+  temp_df <- fortify(temp)
+  colnames(temp_df) <- c("timestamp","power","occupancy")
+  p <- ggplot(temp_df,aes(timestamp,power/1000)) + geom_line(aes(colour="Power"))
+  p <- p + geom_line(aes(y=occupancy/10,colour="Occupancy"))
+  p <- p + scale_y_continuous(sec.axis = sec_axis(~.*10, name = "Occupancy count"))
+  p <- p + scale_colour_manual(values = c("blue", "red")) 
+  p <- p + labs(y = "Power (kW)", x = "",colour = "") + scale_x_datetime(breaks=scales::date_breaks("1 day"),labels = scales::date_format("%d-%b"))
+  p <- p + theme(legend.position = c(0.2,0.9),axis.text.x = element_text(color = "black"))
+  p <- p + theme(axis.text.y.right=element_text(colour = "blue"),axis.title.y.right=element_text(colour = "blue"),axis.title.y.left = element_text(colour = "red"),axis.text.y.left = element_text(color = "red"))
+  p
+  #ggsave("occu_power_acb_1.pdf",height = 2,width = 6,units = c("in"))
+  
+  
+  # Now for another building
+  def_path <- "power dataset path1"
+  meter <- "girls_hostel_mains.csv"
+  data <- fread(paste0(def_path,meter))
+  data$timestamp <- as.POSIXct(data$timestamp,tz="Asia/Kolkata",origin = "1970-01-01")
+  start_date <- as.POSIXct("2017-04-01")
+  end_date <- as.POSIXct("2017-04-05 23:59:59")
+  data_sub <- data[data$timestamp >= start_date & data$timestamp <= end_date,]
+  data_sub_xts <- xts(data_sub$power,data_sub$timestamp)
+  data_sampled <- resample_data_minutely(data_sub_xts,30)
+
+  occupancy_path <- "occupancy file"
+  
+  occu_df <- fread(occupancy_path)
+  occu_df$timestamp <- as.POSIXct(occu_df$timestamp,tz="Asia/Kolkata",origin = "1970-01-01")
+  occu_df$timestamp <- occu_df$timestamp + 19800 # adding 5:30 hours
+  occu_sub <- occu_df[occu_df$timestamp >= start_date & occu_df$timestamp <= end_date,]
+  occu_xts <- xts(occu_sub$occupancy_count, occu_sub$timestamp) 
+  occu_sampled <- resample_occupancy_minutely(occu_xts,30)
+
+  temp <- cbind(data_sampled,occu_sampled)
+  temp_df <- fortify(temp)
+  colnames(temp_df) <- c("timestamp","power","occupancy")
+  p <- ggplot(temp_df,aes(timestamp,power/1000)) + geom_line(aes(colour="Power"))
+  p <- p + geom_line(aes(y=occupancy/10,colour="Occupancy"))
+  p <- p + scale_y_continuous(sec.axis = sec_axis(~.*10, name = "Occupancy count"))
+  p <- p + scale_colour_manual(values = c("blue", "red")) 
+  p <- p + labs(y = "Power (kW)", x = "",colour = "") + scale_x_datetime(breaks=scales::date_breaks("1 day"),labels = scales::date_format("%d-%b"))
+  p <- p + theme(legend.position = c(0.2,0.9),axis.text.x = element_text(color = "black"))
+  p <- p + theme(axis.text.y.right=element_text(colour = "blue"),axis.title.y.right=element_text(colour = "blue"),axis.title.y.left = element_text(colour = "red"),axis.text.y.left = element_text(color = "red"))
+  p
+  #ggsave("occu_power_girls_main_1.pdf",height = 2,width = 6,units = c("in"))
 }
